@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PB 解码器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            line-height: 1.6;
+            color: #2c3e50;
+            background-color: #f0f5ff;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(100, 110, 255, 0.08);
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 40px;
+            color: #4263eb;
+            letter-spacing: -0.5px;
+        }
+
+        .input-section,
+        .output-section {
+            margin-bottom: 30px;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 180px;
+            padding: 20px;
+            border: 2px solid #e5e9ff;
+            border-radius: 8px;
+            font-family: 'SF Mono', Menlo, monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #2c3e50;
+            background-color: #fafbff;
+            transition: all 0.2s ease;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #4263eb;
+            box-shadow: 0 0 0 3px rgba(66, 99, 235, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 16px;
+            margin: 24px 0;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            letter-spacing: 0.3px;
+        }
+
+        #decodeButton {
+            background-color: #4263eb;
+            color: #ffffff;
+            flex: 1;
+        }
+
+        #decodeButton:hover {
+            background-color: #3b5bdb;
+            transform: translateY(-1px);
+        }
+
+        #copyButton {
+            background-color: #e5e9ff;
+            color: #4263eb;
+            border: none;
+        }
+
+        #copyButton:hover {
+            background-color: #d0d7ff;
+            transform: translateY(-1px);
+        }
+
+        pre {
+            background-color: #fafbff;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #e5e9ff;
+            font-family: 'SF Mono', Menlo, monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            overflow-x: auto;
+            color: #2c3e50;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background-color: #4263eb;
+            color: #ffffff;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+            animation: fadeIn 0.2s ease;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(66, 99, 235, 0.2);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, 10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translate(-50%, 0);
+            }
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 20px 16px;
+            }
+
+            .container {
+                padding: 24px;
+            }
+
+            h1 {
+                font-size: 24px;
+                margin-bottom: 30px;
+            }
+
+            textarea,
+            pre {
+                padding: 16px;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>PB 数据解码器</h1>
+        <div class="input-section">
+            <textarea id="input" placeholder="请输入 Base64 编码数据..." spellcheck="false"></textarea>
+        </div>
+        <div class="button-group">
+            <button id="decodeButton">解码数据</button>
+            <button id="copyButton">复制结果</button>
+        </div>
+        <div class="output-section">
+            <pre id="output"></pre>
+        </div>
+    </div>
+    <div class="toast" id="toast">已复制到剪贴板</div>
+
+    <script>
+        class PBDecoder {
+            /**
+             * 清理 Base64 数据
+             * @param {string} input - 原始 Base64 数据
+             * @returns {string} - 清理后的 Base64 数据
+             */
+            static sanitizeBase64(input) {
+                console.log("原始 Base64 数据:", input);
+
+                // 删除开头和结尾的引号
+                input = input.replace(/^"|"$/g, '');
+
+                // 替换转义的换行符
+                input = input.replace(/\\n/g, '\n');
+
+                // 清理所有换行符、回车和空格
+                const sanitized = input.replaceAll(/[\n\r\s]/g, '');
+
+                console.log("清理后的 Base64 数据:", sanitized);
+                return sanitized;
+            }
+
+            /**
+             * 解码 PB 数据
+             * @param {string} base64String - Base64 编码数据
+             * @returns {object|null} - 返回解码后的 JSON 对象，失败返回 null
+             */
+            static decodePBData(base64String) {
+                try {
+
+                    // 清理 Base64 数据
+                    const sanitizedBase64 = PBDecoder.sanitizeBase64(base64String);
+                    console.log("清理后的 Base64 数据:", sanitizedBase64);
+
+                    // Base64 解码
+                    const binaryString = atob(sanitizedBase64);
+                    console.log("Base64 解码后的二进制字符串长度:", binaryString.length);
+
+                    // 转换为 Uint8Array
+                    const binaryLength = binaryString.length;
+                    const compressed = new Uint8Array(binaryLength);
+                    for (let i = 0; i < binaryLength; i++) {
+                        compressed[i] = binaryString.charCodeAt(i);
+                    }
+                    console.log("Base64 转换后的 Uint8Array:", compressed);
+
+                    // GZIP 解压
+                    const decompressed = pako.inflate(compressed);
+                    console.log("GZIP 解压后的数据长度:", decompressed.length);
+
+                    // 转换为字符串
+                    const jsonString = new TextDecoder("utf-8").decode(decompressed);
+                    console.log("解压后的 JSON 字符串:", jsonString);
+
+                    // 解析 JSON
+                    const result = JSON.parse(jsonString);
+                    console.log("最终解析结果:", result);
+
+                    return result;
+                } catch (error) {
+                    console.error("解码或解压失败:", error);
+                    return null;
+                }
+            }
+        }
+
+        // 绑定按钮点击事件
+        document.getElementById("decodeButton").addEventListener("click", () => {
+            const input = document.getElementById("input").value.trim();
+            const output = document.getElementById("output");
+
+            if (!input) {
+                output.textContent = "请输入 Base64 编码数据！";
+                return;
+            }
+
+            // 解码数据
+            const result = PBDecoder.decodePBData(input);
+
+            // 输出结果
+            output.textContent = result ? JSON.stringify(result, null, 2) : "解码失败！";
+        });
+
+        document.getElementById("copyButton").addEventListener("click", () => {
+            const output = document.getElementById("output");
+            const toast = document.getElementById("toast");
+
+            if (output.textContent && output.textContent !== "请输入 Base64 编码数据！" && output.textContent !== "解码失败！") {
+                navigator.clipboard.writeText(output.textContent)
+                    .then(() => {
+                        toast.style.display = 'block';
+                        setTimeout(() => {
+                            toast.style.display = 'none';
+                        }, 2000);
+                    })
+                    .catch(err => console.error('复制失败:', err));
+            }
+        });
+    </script>
+</body>
+
+</html>
